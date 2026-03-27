@@ -2,11 +2,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, CreditCard, Loader2, X } from "lucide-react";
+import { CheckCircle2, CreditCard, Loader2, MapPin, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { backendInterface as FullBackendInterface } from "../backend.d";
 import { useActor } from "../hooks/useActor";
+import { useInternetIdentity } from "../hooks/useInternetIdentity";
 
 // Stripe global type
 declare global {
@@ -60,8 +61,28 @@ interface CheckoutModalProps {
   onSuccess: () => void;
 }
 
+interface SavedAddress {
+  id: string;
+  label: string;
+  fullName: string;
+  phone: string;
+  fullAddress: string;
+  pincode: string;
+}
+
 function formatPrice(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
+}
+
+function getSavedAddresses(principal: string): SavedAddress[] {
+  if (typeof window === "undefined" || !principal) return [];
+  try {
+    return JSON.parse(
+      localStorage.getItem(`snapkart_addresses_${principal}`) ?? "[]",
+    );
+  } catch {
+    return [];
+  }
 }
 
 export function CheckoutModal({
@@ -72,6 +93,8 @@ export function CheckoutModal({
 }: CheckoutModalProps) {
   const { actor: rawActor } = useActor();
   const actor = rawActor as unknown as FullBackendInterface | null;
+  const { identity } = useInternetIdentity();
+  const principal = identity?.getPrincipal().toString() ?? "";
   const cardRef = useRef<HTMLDivElement>(null);
   const stripeRef = useRef<StripeInstance | null>(null);
   const cardElementRef = useRef<StripeCardElement | null>(null);
@@ -83,6 +106,10 @@ export function CheckoutModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [step, setStep] = useState<"address" | "payment">("address");
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [selectedSavedAddr, setSelectedSavedAddr] = useState<string | null>(
+    null,
+  );
 
   const [address, setAddress] = useState({
     name: "",
@@ -91,6 +118,23 @@ export function CheckoutModal({
     city: "",
     pincode: "",
   });
+
+  useEffect(() => {
+    const saved = getSavedAddresses(principal);
+    setSavedAddresses(saved);
+  }, [principal]);
+
+  function applySavedAddress(addr: SavedAddress) {
+    setSelectedSavedAddr(addr.id);
+    // Parse saved address into fields
+    setAddress({
+      name: addr.fullName,
+      phone: addr.phone,
+      addressLine: addr.fullAddress,
+      city: "",
+      pincode: addr.pincode,
+    });
+  }
 
   // Load Stripe and mount card element
   useEffect(() => {
@@ -167,10 +211,6 @@ export function CheckoutModal({
       toast.error("Please enter your address");
       return false;
     }
-    if (!address.city.trim()) {
-      toast.error("Please enter your city");
-      return false;
-    }
     if (!address.pincode.trim() || address.pincode.length < 6) {
       toast.error("Please enter a valid pincode");
       return false;
@@ -200,7 +240,8 @@ export function CheckoutModal({
         return;
       }
       const paymentIntentId = result.paymentIntent?.id ?? "";
-      const shippingAddress = `${address.name}, ${address.addressLine}, ${address.city} - ${address.pincode}, Phone: ${address.phone}`;
+      const city = address.city ? `, ${address.city}` : "";
+      const shippingAddress = `${address.name}, ${address.addressLine}${city} - ${address.pincode}, Phone: ${address.phone}`;
       const items = cart.map((item) => ({
         productId: BigInt(item.product.id),
         productName: item.product.name,
@@ -311,6 +352,47 @@ export function CheckoutModal({
 
               {step === "address" && (
                 <div className="space-y-4">
+                  {/* Saved addresses */}
+                  {savedAddresses.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5" /> Saved Addresses
+                      </p>
+                      <div className="space-y-2 mb-3">
+                        {savedAddresses.map((addr) => (
+                          <button
+                            key={addr.id}
+                            type="button"
+                            onClick={() => applySavedAddress(addr)}
+                            className={`w-full text-left p-3 rounded-lg border-2 transition-colors text-sm ${
+                              selectedSavedAddr === addr.id
+                                ? "border-primary bg-blue-50"
+                                : "border-gray-200 hover:border-gray-300"
+                            }`}
+                            data-ocid="checkout.radio"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold uppercase bg-blue-100 text-primary px-1.5 py-0.5 rounded">
+                                {addr.label}
+                              </span>
+                              <span className="font-semibold text-gray-800">
+                                {addr.fullName}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {addr.fullAddress} – {addr.pincode}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {addr.phone}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mb-3 text-center">
+                        or enter a new address
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <Label htmlFor="co-name">Full Name *</Label>
                     <Input
@@ -356,7 +438,7 @@ export function CheckoutModal({
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="co-city">City *</Label>
+                      <Label htmlFor="co-city">City</Label>
                       <Input
                         id="co-city"
                         placeholder="Mumbai"
@@ -402,7 +484,9 @@ export function CheckoutModal({
                       {address.name} · {address.phone}
                     </p>
                     <p className="text-gray-600">
-                      {address.addressLine}, {address.city} - {address.pincode}
+                      {address.addressLine}
+                      {address.city ? `, ${address.city}` : ""} -{" "}
+                      {address.pincode}
                     </p>
                     <button
                       type="button"

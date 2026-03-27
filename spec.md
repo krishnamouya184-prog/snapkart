@@ -1,42 +1,38 @@
 # SnapKart
 
 ## Current State
-SnapKart is a Flipkart-inspired e-commerce React frontend with:
-- 30+ real trending products across 8 categories
-- Shopping cart, wishlist, search/filter
-- Internet Identity login
-- Big Saving Days Sale banner with countdown
-- Flash deals, trending brands
-- Backend: minimal (only greet + authorization mixin)
-- No payments, no seller system, no PWA
+- Full e-commerce platform with Stripe payments, seller dashboard, customer orders, PWA
+- Order statuses: pending/confirmed/shipped/delivered/cancelled
+- Orders have: id, buyerId, items, totalAmount, status, createdAt, paymentIntentId, shippingAddress
+- Products: id, name, category, price, description, imageUrl, discountPercent, stock, sellerId, rating
+- No delivery contact info, no estimated delivery, no address book, no return/refund, no Q&A, no recently viewed, no recommendations
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Stripe payment gateway**: Full checkout flow for customers (credit/debit card)
-- **Seller dashboard**: Sellers can register, add/edit/delete products, view incoming orders, update order status
-- **Role-based authorization**: Customer role vs Seller role (admin can assign seller role)
-- **Order management backend**: Store orders with product details, buyer info, status tracking
-- **Product management backend**: Sellers can persist their own products in the canister
-- **PWA support**: manifest.json, service worker, installable on mobile (home screen), offline fallback page, app icons
+- **DeliveryContact**: phone number field on orders (seller can set delivery boy phone number)
+- **Estimated Delivery Date**: `estimatedDelivery` field on orders (text string like "3-5 business days")
+- **Address Book**: customers can save multiple delivery addresses (CRUD)
+- **Return/Refund Request**: customers can raise return request on delivered orders, seller can view/update
+- **Product Q&A**: customers can ask questions on products, sellers/anyone can answer
+- **Recently Viewed**: track last 10 viewed products per user (frontend only, localStorage)
+- **Recommended Products**: show related products from same category (frontend only)
+- **Order Packed status**: add `packed` to OrderStatus enum between confirmed and shipped
 
 ### Modify
-- App.tsx: Add seller dashboard route, Stripe checkout flow, PWA install prompt
-- Backend: Full actor with products, orders, seller management
+- Order type: add `deliveryContact` (string), `estimatedDelivery` (string) optional fields
+- Seller dashboard: can set delivery contact and estimated delivery on orders
 
 ### Remove
-- Nothing removed
+- Nothing
 
 ## Implementation Plan
-1. Select `stripe` and `authorization` components
-2. Generate Motoko backend with:
-   - Product CRUD (sellers manage their own products)
-   - Order creation and tracking
-   - Role-based access (seller vs customer)
-   - Stripe payment intent creation via HTTP outcalls
-3. Build frontend:
-   - PWA: vite-plugin-pwa or manual manifest + service worker in index.html
-   - Seller dashboard page: product management, order management
-   - Checkout page: Stripe payment form (Stripe.js Elements)
-   - Customer order history page
-   - Role-based navigation (seller sees dashboard link)
+1. Backend: Add packed status, extend Order with deliveryContact + estimatedDelivery, add Address CRUD, add ReturnRequest, add ProductQuestion/Answer
+2. Frontend: 
+   - Order details modal showing status timeline, delivery contact (tap to call), estimated delivery
+   - Address book page in profile
+   - Return request button on delivered orders
+   - Q&A section on product modal
+   - Recently viewed row (localStorage)
+   - Recommended products section on product modal
+   - Seller order management: set delivery contact + estimated delivery

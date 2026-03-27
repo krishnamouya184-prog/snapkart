@@ -30,7 +30,9 @@ import {
   Edit3,
   Loader2,
   Package,
+  Phone,
   Plus,
+  RotateCcw,
   ShoppingBag,
   Store,
   Trash2,
@@ -85,6 +87,27 @@ function getStatusLabel(status: Order["status"]) {
   return "Unknown";
 }
 
+interface ReturnRequest {
+  orderId: string;
+  reason: string;
+  status: "requested" | "approved" | "rejected";
+  createdAt: string;
+}
+
+function getReturns(): ReturnRequest[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem("snapkart_returns") ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveReturns(returns: ReturnRequest[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("snapkart_returns", JSON.stringify(returns));
+}
+
 interface ProductFormData {
   name: string;
   category: string;
@@ -105,6 +128,109 @@ const emptyForm: ProductFormData = {
   stock: "1",
 };
 
+interface OrderRowProps {
+  order: Order;
+  idx: number;
+  initialPhone: string;
+  initialEstDelivery: string;
+  onSaveExtra: (oid: string, phone: string, est: string) => void;
+  onUpdateStatus: (orderId: bigint, statusKey: string) => void;
+}
+
+function OrderRow({
+  order,
+  idx,
+  initialPhone,
+  initialEstDelivery,
+  onSaveExtra,
+  onUpdateStatus,
+}: OrderRowProps) {
+  const oid = order.id.toString();
+  const [localPhone, setLocalPhone] = useState(initialPhone);
+  const [localEst, setLocalEst] = useState(initialEstDelivery);
+
+  return (
+    <div
+      className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm"
+      data-ocid={`seller.item.${idx + 1}`}
+    >
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <p className="font-mono text-xs text-gray-500">Order #{oid}</p>
+          <p className="text-sm text-gray-500">{formatDate(order.createdAt)}</p>
+          <div className="mt-1 space-y-0.5">
+            {order.items.map((item) => (
+              <p key={item.productName} className="text-xs text-gray-600">
+                {item.productName} × {item.quantity.toString()}
+              </p>
+            ))}
+          </div>
+          <p className="font-semibold text-sm mt-1">
+            {formatPrice(order.totalAmount)}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5 max-w-xs">
+            {order.shippingAddress}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 items-end">
+          <Select
+            value={Object.keys(order.status)[0]}
+            onValueChange={(v) => onUpdateStatus(order.id, v)}
+          >
+            <SelectTrigger
+              className={`h-7 text-xs w-32 ${getStatusColor(order.status)}`}
+              data-ocid={`seller.select.${idx + 1}`}
+            >
+              <SelectValue>{getStatusLabel(order.status)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="shipped">Shipped</SelectItem>
+              <SelectItem value="delivered">Delivered</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs flex items-center gap-1.5 mb-1">
+            <Phone className="w-3 h-3" /> Delivery Boy Phone
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              className="h-8 text-xs"
+              placeholder="10-digit number"
+              value={localPhone}
+              onChange={(e) => setLocalPhone(e.target.value)}
+              data-ocid={`seller.input.${idx + 1}`}
+            />
+            <Button
+              size="sm"
+              className="h-8 bg-primary text-xs px-3"
+              onClick={() => onSaveExtra(oid, localPhone, localEst)}
+              data-ocid={`seller.save_button.${idx + 1}`}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs mb-1 block">Estimated Delivery Date</Label>
+          <Input
+            className="h-8 text-xs"
+            type="date"
+            value={localEst}
+            onChange={(e) => setLocalEst(e.target.value)}
+            data-ocid={`seller.input.${idx + 1}`}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SellerDashboard({ onBack }: { onBack: () => void }) {
   const { actor: rawActor } = useActor();
   const actor = rawActor as unknown as FullBackendInterface | null;
@@ -118,6 +244,12 @@ export function SellerDashboard({ onBack }: { onBack: () => void }) {
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [editForm, setEditForm] = useState<ProductFormData>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [returns, setReturns] = useState<ReturnRequest[]>([]);
+
+  // Order extra fields (delivery contact & est delivery)
+  const [orderExtras, setOrderExtras] = useState<
+    Record<string, { phone: string; estDelivery: string }>
+  >({});
 
   useEffect(() => {
     if (!actor || !identity) return;
@@ -135,9 +267,44 @@ export function SellerDashboard({ onBack }: { onBack: () => void }) {
       .then(([prods, ords]) => {
         setProducts(prods);
         setOrders(ords);
+        // Load saved extras from localStorage
+        const extras: Record<string, { phone: string; estDelivery: string }> =
+          {};
+        for (const o of ords) {
+          const oid = o.id.toString();
+          extras[oid] = {
+            phone:
+              localStorage.getItem(`snapkart_delivery_contact_${oid}`) ?? "",
+            estDelivery:
+              localStorage.getItem(`snapkart_est_delivery_${oid}`) ?? "",
+          };
+        }
+        setOrderExtras(extras);
+        setReturns(getReturns());
       })
       .catch((e) => console.error(e));
   }, [actor, isSeller]);
+
+  function saveOrderExtra(orderId: string, phone: string, estDelivery: string) {
+    if (phone)
+      localStorage.setItem(`snapkart_delivery_contact_${orderId}`, phone);
+    if (estDelivery)
+      localStorage.setItem(`snapkart_est_delivery_${orderId}`, estDelivery);
+    setOrderExtras((prev) => ({ ...prev, [orderId]: { phone, estDelivery } }));
+    toast.success("Saved!");
+  }
+
+  function handleUpdateReturn(
+    orderId: string,
+    status: "approved" | "rejected",
+  ) {
+    const updated = returns.map((r) =>
+      r.orderId === orderId ? { ...r, status } : r,
+    );
+    setReturns(updated);
+    saveReturns(updated);
+    toast.success(`Return ${status}`);
+  }
 
   async function handleRegisterAsSeller() {
     if (!actor) return;
@@ -337,6 +504,8 @@ export function SellerDashboard({ onBack }: { onBack: () => void }) {
     );
   }
 
+  const pendingReturns = returns.filter((r) => r.status === "requested");
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6" data-ocid="seller.panel">
       <div className="flex items-center justify-between mb-6">
@@ -389,6 +558,14 @@ export function SellerDashboard({ onBack }: { onBack: () => void }) {
           </TabsTrigger>
           <TabsTrigger value="orders" data-ocid="seller.tab">
             <ShoppingBag className="w-4 h-4 mr-1" /> Orders ({orders.length})
+          </TabsTrigger>
+          <TabsTrigger value="returns" data-ocid="seller.tab">
+            <RotateCcw className="w-4 h-4 mr-1" /> Returns
+            {pendingReturns.length > 0 && (
+              <span className="ml-1.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                {pendingReturns.length}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -627,69 +804,107 @@ export function SellerDashboard({ onBack }: { onBack: () => void }) {
               <p className="text-gray-500">No orders yet.</p>
             </div>
           ) : (
+            <div className="space-y-4">
+              {orders.map((order, idx) => {
+                const oid = order.id.toString();
+                const extra = orderExtras[oid] ?? {
+                  phone: "",
+                  estDelivery: "",
+                };
+                return (
+                  <OrderRow
+                    key={oid}
+                    order={order}
+                    idx={idx}
+                    initialPhone={extra.phone}
+                    initialEstDelivery={extra.estDelivery}
+                    onSaveExtra={saveOrderExtra}
+                    onUpdateStatus={handleUpdateStatus}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Return Requests */}
+        <TabsContent value="returns">
+          {returns.length === 0 ? (
+            <div
+              className="bg-white rounded-xl p-12 text-center border border-gray-100"
+              data-ocid="seller.empty_state"
+            >
+              <RotateCcw className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-500">No return requests yet.</p>
+            </div>
+          ) : (
             <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
               <Table data-ocid="seller.table">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Order ID</TableHead>
+                    <TableHead>Reason</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Shipping Address</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orders.map((order, idx) => (
+                  {returns.map((ret, idx) => (
                     <TableRow
-                      key={order.id.toString()}
+                      key={ret.orderId}
                       data-ocid={`seller.item.${idx + 1}`}
                     >
                       <TableCell className="font-mono text-xs">
-                        #{order.id.toString()}
+                        #{ret.orderId}
                       </TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {formatDate(order.createdAt)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-0.5">
-                          {order.items.map((item) => (
-                            <p
-                              key={item.productName}
-                              className="text-xs text-gray-600"
-                            >
-                              {item.productName} × {item.quantity.toString()}
-                            </p>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-semibold">
-                        {formatPrice(order.totalAmount)}
-                      </TableCell>
-                      <TableCell className="text-xs text-gray-500 max-w-[150px]">
-                        {order.shippingAddress}
+                      <TableCell className="text-sm">{ret.reason}</TableCell>
+                      <TableCell className="text-xs text-gray-500">
+                        {new Date(ret.createdAt).toLocaleDateString("en-IN")}
                       </TableCell>
                       <TableCell>
-                        <Select
-                          value={Object.keys(order.status)[0]}
-                          onValueChange={(v) => handleUpdateStatus(order.id, v)}
+                        <Badge
+                          className={`text-xs ${
+                            ret.status === "approved"
+                              ? "bg-green-100 text-green-700"
+                              : ret.status === "rejected"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-orange-100 text-orange-700"
+                          }`}
                         >
-                          <SelectTrigger
-                            className={`h-7 text-xs w-32 ${getStatusColor(order.status)}`}
-                            data-ocid={`seller.select.${idx + 1}`}
-                          >
-                            <SelectValue>
-                              {getStatusLabel(order.status)}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="confirmed">Confirmed</SelectItem>
-                            <SelectItem value="shipped">Shipped</SelectItem>
-                            <SelectItem value="delivered">Delivered</SelectItem>
-                            <SelectItem value="cancelled">Cancelled</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          {ret.status === "requested"
+                            ? "Pending"
+                            : ret.status === "approved"
+                              ? "Approved"
+                              : "Rejected"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {ret.status === "requested" && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                              onClick={() =>
+                                handleUpdateReturn(ret.orderId, "approved")
+                              }
+                              data-ocid={`seller.primary_button.${idx + 1}`}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs text-red-600 border-red-300"
+                              onClick={() =>
+                                handleUpdateReturn(ret.orderId, "rejected")
+                              }
+                              data-ocid={`seller.delete_button.${idx + 1}`}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

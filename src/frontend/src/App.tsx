@@ -27,12 +27,103 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import React from "react";
 import { toast } from "sonner";
 import { CheckoutModal } from "./components/CheckoutModal";
 import { MyOrders } from "./components/MyOrders";
 import { SellerDashboard } from "./components/SellerDashboard";
+import { UserProfile } from "./components/UserProfile";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
+
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+function getRecentlyViewed(): number[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem("snapkart_recently_viewed") ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function addRecentlyViewed(id: number) {
+  const current = getRecentlyViewed().filter((i) => i !== id);
+  const updated = [id, ...current].slice(0, 10);
+  localStorage.setItem("snapkart_recently_viewed", JSON.stringify(updated));
+}
+
+interface QAItem {
+  id: string;
+  productId: number;
+  question: string;
+  answer: string;
+  askedBy: string;
+  createdAt: string;
+}
+
+function getQAItems(productId: number): QAItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const all: QAItem[] = JSON.parse(
+      localStorage.getItem("snapkart_qa") ?? "[]",
+    );
+    return all.filter((q) => q.productId === productId);
+  } catch {
+    return [];
+  }
+}
+
+function saveQAItem(item: QAItem) {
+  if (typeof window === "undefined") return;
+  const all: QAItem[] = JSON.parse(localStorage.getItem("snapkart_qa") ?? "[]");
+  const idx = all.findIndex((q) => q.id === item.id);
+  if (idx >= 0) all[idx] = item;
+  else all.push(item);
+  localStorage.setItem("snapkart_qa", JSON.stringify(all));
+}
+
+function AnswerInput({
+  qa: _qa,
+  onAnswer,
+}: {
+  qa: QAItem;
+  onAnswer: (answer: string) => void;
+}) {
+  const [ans, setAns] = React.useState("");
+  const [open, setOpen] = React.useState(false);
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs text-primary font-medium hover:underline"
+      >
+        Answer
+      </button>
+    );
+  return (
+    <div className="flex gap-1.5 flex-1">
+      <input
+        className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 outline-none focus:border-primary"
+        placeholder="Type your answer..."
+        value={ans}
+        onChange={(e) => setAns(e.target.value)}
+      />
+      <button
+        type="button"
+        className="text-xs bg-primary text-white px-2 py-1 rounded font-medium"
+        onClick={() => {
+          if (ans.trim()) {
+            onAnswer(ans);
+            setOpen(false);
+          }
+        }}
+      >
+        Post
+      </button>
+    </div>
+  );
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Category =
@@ -712,11 +803,18 @@ export default function App() {
   const [reviewText, setReviewText] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [newReviewRating, setNewReviewRating] = useState(5);
-  const [page, setPage] = useState<"store" | "seller" | "orders">("store");
+  const [page, setPage] = useState<"store" | "seller" | "orders" | "profile">(
+    "store",
+  );
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [pwaInstallEvent, setPwaInstallEvent] = useState<Event | null>(null);
   const [showPwaBanner, setShowPwaBanner] = useState(false);
   const [isSeller, setIsSeller] = useState(false);
+  const [recentlyViewed, setRecentlyViewed] = useState<number[]>(() =>
+    getRecentlyViewed(),
+  );
+  const [qaQuestion, setQaQuestion] = useState("");
+  const [qaItems, setQaItems] = useState<QAItem[]>([]);
 
   // Register service worker
   useEffect(() => {
@@ -801,6 +899,15 @@ export default function App() {
       );
   }
 
+  useEffect(() => {
+    if (selectedProduct) {
+      addRecentlyViewed(selectedProduct.id);
+      setRecentlyViewed(getRecentlyViewed());
+      setQaItems(getQAItems(selectedProduct.id));
+      setQaQuestion("");
+    }
+  }, [selectedProduct]);
+
   const productReviews = selectedProduct
     ? (SAMPLE_REVIEWS[selectedProduct.id] ?? DEFAULT_REVIEWS)
     : [];
@@ -858,6 +965,16 @@ export default function App() {
         <div className="min-h-screen bg-[#f1f3f6]">
           <MyOrders onBack={() => setPage("store")} />
         </div>
+      )}
+      {page === "profile" && (
+        <UserProfile
+          onBack={() => setPage("store")}
+          onLogout={() => {
+            clear();
+            setPage("store");
+          }}
+          onViewOrders={() => setPage("orders")}
+        />
       )}
 
       {/* ── Checkout Modal ──────────────────────────────────────────────────── */}
@@ -934,7 +1051,7 @@ export default function App() {
                     {isLoggedIn ? (
                       <button
                         type="button"
-                        onClick={() => clear()}
+                        onClick={() => setPage("profile")}
                         className="hidden sm:flex items-center gap-1.5 bg-white text-primary font-semibold text-sm px-3 py-1.5 rounded-sm hover:bg-blue-50 transition-colors"
                         data-ocid="nav.button"
                       >
@@ -1223,6 +1340,51 @@ export default function App() {
                   ))}
                 </div>
               </section>
+
+              {/* ── Recently Viewed ─────────────────────────────────────── */}
+              {recentlyViewed.length > 0 && (
+                <section
+                  className="bg-white rounded-xl shadow-card overflow-hidden"
+                  data-ocid="recently.section"
+                >
+                  <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-gray-100">
+                    <h2 className="text-base font-bold text-gray-900">
+                      Recently Viewed
+                    </h2>
+                  </div>
+                  <div className="flex overflow-x-auto gap-3 p-4 scrollbar-none">
+                    {recentlyViewed
+                      .map((id) => PRODUCTS.find((p) => p.id === id))
+                      .filter(Boolean)
+                      .map((p) => (
+                        <button
+                          type="button"
+                          key={p!.id}
+                          onClick={() => setSelectedProduct(p!)}
+                          className="shrink-0 w-36 text-left group"
+                          data-ocid="recently.button"
+                        >
+                          <div className="relative rounded-lg overflow-hidden bg-gray-50 mb-2 h-36">
+                            <img
+                              src={p!.image}
+                              alt={p!.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            />
+                            <div className="absolute top-1.5 left-1.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+                              {discountPct(p!.originalPrice, p!.salePrice)}% OFF
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium line-clamp-2 leading-tight">
+                            {p!.name}
+                          </p>
+                          <p className="text-sm font-bold text-primary mt-1">
+                            {formatPrice(p!.salePrice)}
+                          </p>
+                        </button>
+                      ))}
+                  </div>
+                </section>
+              )}
 
               {/* ── Trending Brands ─────────────────────────────────────────────── */}
               <section
@@ -1824,12 +1986,23 @@ export default function App() {
 
                       <div className="flex gap-2 mt-5">
                         <Button
+                          className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold"
+                          onClick={() => {
+                            addToCart(selectedProduct);
+                            setCheckoutOpen(true);
+                            setSelectedProduct(null);
+                          }}
+                          data-ocid="product.primary_button"
+                        >
+                          <Zap className="w-4 h-4 mr-2" /> Buy Now
+                        </Button>
+                        <Button
                           className="flex-1 bg-primary hover:bg-blue-700 font-bold"
                           onClick={() => {
                             addToCart(selectedProduct);
                             setSelectedProduct(null);
                           }}
-                          data-ocid="product.primary_button"
+                          data-ocid="product.secondary_button"
                         >
                           <ShoppingCart className="w-4 h-4 mr-2" /> Add to Cart
                         </Button>
@@ -1951,6 +2124,161 @@ export default function App() {
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  {/* Recommended Products */}
+                  {selectedProduct &&
+                    (() => {
+                      const recs = PRODUCTS.filter(
+                        (p) =>
+                          p.category === selectedProduct.category &&
+                          p.id !== selectedProduct.id,
+                      ).slice(0, 4);
+                      if (recs.length === 0) return null;
+                      return (
+                        <div className="border-t border-gray-100 p-6">
+                          <h3 className="font-bold text-gray-900 mb-4">
+                            You May Also Like
+                          </h3>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {recs.map((rec) => (
+                              <button
+                                key={rec.id}
+                                type="button"
+                                onClick={() => setSelectedProduct(rec)}
+                                className="text-left group"
+                                data-ocid="product.button"
+                              >
+                                <div className="rounded-lg overflow-hidden bg-gray-50 h-24 mb-1.5">
+                                  <img
+                                    src={rec.image}
+                                    alt={rec.name}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                  />
+                                </div>
+                                <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-tight">
+                                  {rec.name}
+                                </p>
+                                <p className="text-xs font-bold text-primary mt-0.5">
+                                  {formatPrice(rec.salePrice)}
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                  {/* Q&A Section */}
+                  <div className="border-t border-gray-100 p-6">
+                    <h3 className="font-bold text-gray-900 mb-4">
+                      Questions &amp; Answers
+                    </h3>
+                    <div className="space-y-3 mb-4">
+                      {qaItems.length === 0 && (
+                        <p className="text-sm text-gray-500">
+                          No questions yet. Be the first to ask!
+                        </p>
+                      )}
+                      {qaItems.map((qa) => (
+                        <div
+                          key={qa.id}
+                          className="bg-gray-50 rounded-xl p-3 space-y-1.5"
+                        >
+                          <div className="flex items-start gap-2">
+                            <span className="text-[11px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded shrink-0 mt-0.5">
+                              Q
+                            </span>
+                            <p className="text-sm text-gray-800">
+                              {qa.question}
+                            </p>
+                          </div>
+                          <div className="flex items-start gap-2 pl-1">
+                            <span
+                              className={`text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5 ${qa.answer ? "text-green-700 bg-green-100" : "text-gray-500 bg-gray-200"}`}
+                            >
+                              A
+                            </span>
+                            {qa.answer ? (
+                              <p className="text-sm text-gray-700">
+                                {qa.answer}
+                              </p>
+                            ) : (
+                              <div className="flex-1 flex items-center justify-between">
+                                <p className="text-xs text-gray-400 italic">
+                                  Not answered yet
+                                </p>
+                                {isSeller && (
+                                  <AnswerInput
+                                    qa={qa}
+                                    onAnswer={(answer) => {
+                                      const updated = { ...qa, answer };
+                                      saveQAItem(updated);
+                                      setQaItems((prev) =>
+                                        prev.map((q) =>
+                                          q.id === qa.id ? updated : q,
+                                        ),
+                                      );
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {isLoggedIn ? (
+                      <div className="flex gap-2">
+                        <input
+                          className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-primary"
+                          placeholder="Ask a question about this product..."
+                          value={qaQuestion}
+                          onChange={(e) => setQaQuestion(e.target.value)}
+                          data-ocid="product.input"
+                        />
+                        <Button
+                          size="sm"
+                          className="bg-primary shrink-0"
+                          onClick={() => {
+                            if (!qaQuestion.trim()) return;
+                            const item: QAItem = {
+                              id: `qa_${Date.now()}`,
+                              productId: selectedProduct!.id,
+                              question: qaQuestion,
+                              answer: "",
+                              askedBy:
+                                identity
+                                  ?.getPrincipal()
+                                  .toString()
+                                  .slice(0, 8) ?? "User",
+                              createdAt: new Date().toISOString(),
+                            };
+                            saveQAItem(item);
+                            setQaItems((prev) => [...prev, item]);
+                            setQaQuestion("");
+                            toast.success("Question submitted!");
+                          }}
+                          data-ocid="product.submit_button"
+                        >
+                          Ask
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="bg-blue-50 rounded-lg p-3 flex items-center justify-between">
+                        <p className="text-sm text-gray-600">
+                          Login to ask a question
+                        </p>
+                        <Button
+                          size="sm"
+                          className="bg-primary"
+                          onClick={() => setLoginOpen(true)}
+                          data-ocid="product.button"
+                        >
+                          Login
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
