@@ -1,0 +1,77 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+
+    /* Page background: very light gray */
+    --background: 0.965 0.005 240;
+    --foreground: 0.14 0 0;
+
+    /* Card: white */
+    --card: 1 0 0;
+    --card-foreground: 0.14 0 0;
+
+    --popover: 1 0 0;
+    --popover-foreground: 0.14 0 0;
+
+    /* Primary: Flipkart blue #2874f0 -> oklch ~0.547 0.214 260 */
+    --primary: 0.547 0.214 260;
+    --primary-foreground: 1 0 0;
+
+    /* Secondary: green for sale badges */
+    --secondary: 0.55 0.14 155;
+    --secondary-foreground: 1 0 0;
+
+    --muted: 0.95 0.005 240;
+    --muted-foreground: 0.56 0.01 260;
+
+    --accent: 0.94 0.03 260;
+    --accent-foreground: 0.547 0.214 260;
+
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 1 0 0;
+
+    /* Flipkart yellow accent */
+    --flipkart-yellow: 0.83 0.18 85;
+
+    /* Rating gold */
+    --star: 0.77 0.16 85;
+
+    --border: 0.92 0.005 240;
+    --input: 0.92 0.005 240;
+    --ring: 0.547 0.214 260;
+
+    --chart-1: 0.547 0.214 260;
+    --chart-2: 0.55 0.14 155;
+    --chart-3: 0.65 0.18 30;
+    --chart-4: 0.77 0.16 85;
+    --chart-5: 0.6 0.15 300;
+
+    --sidebar: 1 0 0;
+    --sidebar-foreground: 0.14 0 0;
+    --sidebar-primary: 0.547 0.214 260;
+    --sidebar-primary-foreground: 1 0 0;
+    --sidebar-accent: 0.94 0.03 260;
+    --sidebar-accent-foreground: 0.547 0.214 260;
+    --sidebar-border: 0.92 0.005 240;
+    --sidebar-ring: 0.547 0.214 260;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
